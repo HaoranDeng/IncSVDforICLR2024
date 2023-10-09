@@ -1,0 +1,19 @@
+{
+  "tests": [
+    {
+      "dataset": "slashdot",
+      "methods": ["isvd1"],
+      "m_percent": 0.5,
+      "n_batches": [10000],
+      "r_values": [10],
+      "lam_coeff": 1.01,
+      "num_runs": 1,
+      "k_dims": [64],
+      "save_result": true,
+      "network": true
+    }
+  ],
+  "dataset_info": {
+    "movielen25m_text":       "./datasets/processed/movielen25m.train.npz"
+  }
+}

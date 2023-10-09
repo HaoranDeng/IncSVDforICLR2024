@@ -1,0 +1,38 @@
+{
+  "tests": [
+    {
+      "dataset": "epinions",
+      "methods": ["isvd2"],
+      "m_percent": 0.5,
+      "n_batches": [10, 100, 1000, 10000],
+      "phis_to_plot": [],
+      "r_values": [10],
+      "lam_coeff": 1.01,
+      "num_runs": 1,
+      "k_dims": [64],
+      "query": false,
+      "eval_norm": false,
+      "save_result": true,
+      "lam_coeff": 1.01,
+      "network": true
+    }
+  ],
+  "dataset_info": {
+    "cisi_text":       "./datasets/processed/cisi.txt.npz",
+    "cisi_query":      "./datasets/processed/cisi.qry.npz", 
+    "cisi_relevant":   "./datasets/processed/cisi.rel.json",
+    
+    "cran_text":       "./datasets/processed/cran.txt.npz",
+    "cran_query":      "./datasets/processed/cran.qry.npz", 
+    "cran_relevant":   "./datasets/processed/cran.rel.json",
+
+    "med_text":        "./datasets/processed/med.txt.npz",
+    "med_query":       "./datasets/processed/med.qry.npz", 
+    "med_relevant":    "./datasets/processed/med.rel.json",
+
+    "food_text":       "./datasets/processed/food.train.npz",
+    "goodbook_text":       "./datasets/processed/goodbook.train.npz",
+    "movielen1m_text":       "./datasets/processed/movielen1m.train.npz",
+    "movielen25m_text":       "./datasets/processed/movielen25m.train.npz"
+  }
+}

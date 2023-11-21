@@ -253,17 +253,6 @@ class EvolvingMatrix(object):
         self.phi += 1
         self.n_appended_total += self.n_appended
 
-    def update_svd_zhasimon(self):
-        """Return truncated SVD of updated matrix using the Zha-Simon projection method."""
-        start = time.perf_counter()
-        # print(f"before update: {self.Vk.shape}")
-        self.Uk, self.sigmak, self.Vk = zhasimon_update(
-            self.A, self.Uk, self.sigmak, self.Vk, self.update_matrix
-        )
-        self.runtime += time.perf_counter() - start
-        return self.Uk, self.sigmak, self.Vk
-
-
     def update_svd_isvd1(self):
         start = time.perf_counter()
 
@@ -530,41 +519,96 @@ class EvolvingMatrix(object):
         return self.Uk, self.sigmak, self.Vk
 
 
-    def update_vecharynski(self):
+
+    def update_svd_zhasimon(self):
         """Return truncated SVD of updated matrix using the Zha-Simon projection method."""
-        start = time.perf_counter()
+        
+        '''=====Step 1====='''
+        start_time_step_1 = time.perf_counter()
         E = self.update_matrix
         V = self.Vk
 
         s = E.shape[0]
         k = self.Uk.shape[1]
+
+        Q, R = np.linalg.qr(E.T - V @ (V.T @ E.T))
+        Z = scipy.linalg.block_diag(self.Uk, np.eye(s))
+        W = np.concatenate((V, Q), axis=1)
+        self.runtime_step1 += time.perf_counter() - start_time_step_1
+
+
+        '''=====Step 2====='''
+        start_time_step_2 = time.perf_counter()
+        Mu = np.concatenate((np.diag(self.sigmak), np.zeros((k, s), dtype=np.float64)), axis=1)
+        Md = np.concatenate((E@V, R.T), axis=1)
+        M = np.concatenate((Mu, Md), axis=0)
+        # print(M)
+
+        # Calculate SVD of M
+        # Fk, Tk, GHk = scipy.sparse.linalg.svds(M, k)
+        Fk, Tk, GHk = np.linalg.svd(M, full_matrices=False)
+        # print(len(Tk))
+
+        # Truncate if necessary
+        if k < len(Tk):
+            Fk = Fk[:, :k]
+            Tk = Tk[:k]
+            GHk = GHk[:k]
+        self.runtime_step2 += time.perf_counter() - start_time_step_2
+
+        '''=====Step 3====='''
+        start_time_step_3 = time.perf_counter()
+        # Calculate updated values for Uk, Sk, Vk
+        self.sigmak = Tk
+        self.Uk = Z @ Fk
+        self.Vk = W @ (GHk.T)
+        self.runtime_step3 += time.perf_counter() - start_time_step_3
+
+
+    def update_vecharynski(self):
+        """Return truncated SVD of updated matrix using the Zha-Simon projection method."""
+
+        '''=====Step 1====='''
+        start_time_step_1 = time.perf_counter()
+        E = self.update_matrix
+        V = self.Vk
+        s = E.shape[0]
+        k = self.Uk.shape[1]
         n = V.shape[0]
-        l = 10
+        l = min(10, s)
 
         Q = np.zeros((n, l+1), dtype=np.float64)
-        X = E.T - V @ ((V.T) @ (E.T))
+        # X = E.T - V @ ((V.T) @ (E.T))
+
         P = np.zeros((s, l+2), dtype=np.float64)
         P[:, 1] = np.random.randn(s)
         P[:, 1] = P[:, 1] / np.linalg.norm(P[:, 1])
         beta = np.zeros((l+1, ), dtype=np.float64)
         alpha = np.zeros((l+1, ), dtype=np.float64)
         for i in range(1, l+1):
-            Q[:, i] = X @ P[:, i] - beta[i-1] * Q[:, i-1]
+            time_1 = time.perf_counter()
+            # Q[:, i] = X @ P[:, i] - beta[i-1] * Q[:, i-1]
+            Q[:, i] = E.T @ P[:, i] - V @ ((V.T @ E.T) @ P[:, i]) - beta[i-1] * Q[:, i-1]
+            self.runtime_tmp1 += time.perf_counter() - time_1
+
             alpha[i] = np.linalg.norm(Q[:, i])
             if alpha[i] == 0:
                 Q[:, i] = 0
             else:
                 Q[:, i] /= alpha[i]
             
-            P[:, i+1] = X.T @ Q[:, i] - alpha[i] * P[:, i]
+            time_2 = time.perf_counter()
+            # P[:, i+1] = X.T @ Q[:, i] - alpha[i] * P[:, i]
+            P[:, i+1] = E @ Q[:, i] - E @ (V @ (V.T @ Q[:, i])) - alpha[i] * P[:, i]
+            self.runtime_tmp2 += time.perf_counter() - time_2
             for j in range(1, i+1):
                 P[:, i+1] -= np.dot(P[:, i+1], P[:, j]) * P[:, j]
+            
             beta[i] = np.linalg.norm(P[:, i+1])
             if beta[i] == 0:
                 P[:, i+1] = 0
                 continue
             P[:, i+1] /= beta[i]
-
 
         B = np.zeros((l, l+1), dtype=np.float64)
         for i in range(l):
@@ -574,36 +618,40 @@ class EvolvingMatrix(object):
         P = P[:, 1:]
         Q = Q[:, 1:]
 
-
         Z = scipy.linalg.block_diag(self.Uk, np.eye(s))
         W = np.concatenate((self.Vk, Q), axis=-1)
-        
+        self.runtime_step1 += time.perf_counter() - start_time_step_1
+
+        '''=====Step 2====='''
+        start_time_step_2 = time.perf_counter()
         Mu = np.concatenate((np.diag(self.sigmak), np.zeros((k, l), dtype=np.float64)), axis=1)
         Md = np.concatenate((E@V, P @ B.T), axis=1)
         M = np.concatenate((Mu, Md), axis=0)
 
         # Calculate SVD of M
-        time_0 = time.perf_counter()
         Fk, Tk, GHk = np.linalg.svd(M, full_matrices=False)
-        time_1 = time.perf_counter()
-
+        
         # Truncate if necessary
         if k < len(Tk):
             Fk = Fk[:, :k]
             Tk = Tk[:k]
             GHk = GHk[:k]
+        self.runtime_step2 += time.perf_counter() - start_time_step_2
 
+        '''=====Step 3====='''
+        start_time_step_3 = time.perf_counter()
         # Calculate updated values for Uk, Sk, Vk
         self.Uk = Z @ Fk
         self.sigmak = Tk
-        self.Vk = (W @ (GHk.T))        
+        self.Vk = (W @ (GHk.T))  
+        self.runtime_step3 += time.perf_counter() - start_time_step_3      
 
-        self.runtime += time.perf_counter() - start
-        return self.Uk, self.sigmak, self.Vk
 
     def update_random(self):
         """Return truncated SVD of updated matrix using the random method."""
-        start = time.perf_counter()
+
+        '''=====Step 1====='''
+        start_time_step_1 = time.perf_counter()
         E = self.update_matrix
         V = self.Vk
 
@@ -611,7 +659,7 @@ class EvolvingMatrix(object):
         k = self.Uk.shape[1]
         l = min(10, s)
         num_iter = 3
-        X = E.T - V @ ((V.T) @ (E.T))
+        # X = E.T - V @ ((V.T) @ (E.T))
 
         Q = np.zeros((s, l), dtype=np.float64)
         for i in range(l):
@@ -620,38 +668,36 @@ class EvolvingMatrix(object):
 
         for i in range(num_iter):
             Q, R = np.linalg.qr(Q)
-            P = X @ Q
+            # P = X @ Q
+            P = E.T @ Q - V @ (((V.T) @ (E.T)) @ Q)
             P, R = np.linalg.qr(P)
             if i != num_iter-1:
-                Q = X.T @ P
+                # Q = X.T @ P
+                Q = E @ P - E @ (V @ (V.T @ P))
 
         Z = scipy.linalg.block_diag(self.Uk, np.eye(s))
-        # print(f"Z.shape: {Z.shape}")
         W = np.concatenate((self.Vk, P), axis=-1)
-        # print(f"W.shape: {W.shape}")
-
+        self.runtime_step1 += time.perf_counter() - start_time_step_1
         
+        '''=====Step 2====='''
+        start_time_step_2 = time.perf_counter()
         Mu = np.concatenate((np.diag(self.sigmak), np.zeros((k, l), dtype=np.float64)), axis=1)
         Md = np.concatenate((E@V, Q), axis=1)
-
         M = np.concatenate((Mu, Md), axis=0)
         # Calculate SVD of M
-        time_0 = time.perf_counter()
         Fk, Tk, GHk = np.linalg.svd(M, full_matrices=False)
-        time_1 = time.perf_counter()
-
+        
         # Truncate if necessary
         if k < len(Tk):
             Fk = Fk[:, :k]
             Tk = Tk[:k]
             GHk = GHk[:k]
+        self.runtime_step2 += time.perf_counter() - start_time_step_2
 
-        # print(f"Fk.shape: {Fk.shape}")
-
+        '''=====Step 3====='''
+        start_time_step_3 = time.perf_counter()
         # Calculate updated values for Uk, Sk, Vk
         self.Uk = Z @ Fk
         self.sigmak = Tk
-        self.Vk = (W @ (GHk.T))   
-
-        self.runtime += time.perf_counter() - start
-        return self.Uk, self.sigmak, self.Vk
+        self.Vk = (W @ (GHk.T))
+        self.runtime_step3 += time.perf_counter() - start_time_step_3     
